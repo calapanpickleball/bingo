@@ -52,8 +52,28 @@ details .row{margin-top:8px;flex-wrap:wrap}
 #stats .g{background:var(--gold);color:var(--pi);font-weight:700}#stats .r{background:var(--red)}#stats .o{background:var(--orange);color:var(--pi)}
 .bar .row{align-items:center}.bar .row>*{flex:none}
 .bar label{font-size:13px;color:var(--mute);display:flex;gap:6px;align-items:center}
-.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(var(--cs),1fr));gap:10px;padding:12px;align-content:start;overflow:auto;flex:1}
-.empty{grid-column:1/-1;color:var(--mute);padding:40px;text-align:center}
+.cards{display:flex;flex-direction:column;gap:12px;padding:12px;align-content:start;overflow:auto;flex:1}
+.empty{color:var(--mute);padding:40px;text-align:center}
+.fold{background:#1a2d33;border:1px solid var(--line);border-radius:10px;flex:none}
+.fh{display:flex;align-items:center;gap:8px;padding:6px 10px;user-select:none;flex-wrap:wrap}
+.fh .tg{padding:2px 9px;background:none;font-size:16px}
+.fh .gn{font-weight:700;font-size:17px}
+.fh .gc{color:var(--mute);font-size:13px}
+.gb{font-size:12px;padding:1px 9px;border-radius:99px}
+.gb.g{background:var(--gold);color:var(--pi);font-weight:700}.gb.r{background:var(--red)}.gb.o{background:var(--orange);color:var(--pi)}
+.fa{margin-left:auto;display:flex;gap:6px}.fa button{padding:3px 10px;font-size:13px}
+.fb{display:grid;grid-template-columns:repeat(auto-fill,minmax(var(--cs),1fr));gap:10px;padding:10px;align-content:start;min-height:64px}
+.fb:empty::after{content:"Walang card. I-drop dito ang card.";color:var(--mute);grid-column:1/-1;text-align:center;padding:16px}
+.fold.col .fb{display:none}
+.fold.u.nil{display:none}
+body.dragging .fold.u.nil{display:block}
+.fold.over{outline:2px dashed var(--pat);outline-offset:1px}
+body.dragging{user-select:none;cursor:grabbing}
+.mc{user-select:none}
+.mc.src{opacity:.3}
+.mc.db{box-shadow:-6px 0 0 var(--pat)!important}.mc.da{box-shadow:6px 0 0 var(--pat)!important}
+.hd{cursor:grab;touch-action:none;color:#7a7360;padding:0 5px 0 0;letter-spacing:-2px}
+#ghost{position:fixed;z-index:30;pointer-events:none;opacity:.92;transform:rotate(3deg);box-shadow:0 10px 24px #000a;margin:0}
 .mc{background:var(--paper);color:var(--pi);border-radius:6px;padding:5px;border:3px solid transparent;cursor:pointer}
 .mh{display:flex;justify-content:space-between;font-size:13px;padding:0 3px 3px;border-radius:3px}
 .mg{display:grid;grid-template-columns:repeat(5,1fr);gap:2px}
@@ -114,7 +134,7 @@ details .row{margin-top:8px;flex-wrap:wrap}
     <div id="stats"></div>
     <div class="row">
       <label>Laki <input id="size" type="range" min="115" max="230" value="150"></label>
-      <button id="sort">Sort: Card #</button><button id="flt">Show: lahat</button>
+      <button id="sort">Sort: Ayos ko</button><button id="newgrp">+ Group</button><button id="colall">Collapse all</button><button id="flt">Show: lahat</button>
     </div>
   </div>
   <div id="cards" class="cards"></div>
@@ -176,14 +196,25 @@ const PRE={
 $("pre").innerHTML=Object.entries(PRE).map(([k,v])=>`<option value="${k}">${v.n}</option>`).join("");
 
 /* ---------- state ---------- */
+const newId=()=>"g"+Date.now().toString(36)+Math.random().toString(36).slice(2,5);
+/* bawat card ay nasa eksaktong 1 group; ang "u" (Ungrouped) ay laging may existing */
+function fixGroups(s){
+ const seen=new Set();
+ const gs=Array.from(s.groups||[]).filter(g=>g&&g.id!=null).map(g=>({id:String(g.id),name:String(g.name||"Group"),cards:Array.from(g.cards||[]).map(Number).filter(n=>{if(!s.cards[n]||seen.has(n))return false;seen.add(n);return true})}));
+ let u=gs.find(g=>g.id=="u");
+ if(!u){u={id:"u",name:"Ungrouped",cards:[]};gs.push(u)}
+ Object.keys(s.cards).map(Number).sort((a,b)=>a-b).forEach(n=>{if(!seen.has(n)){u.cards.push(n);seen.add(n)}});
+ s.groups=gs;
+}
 function norm(v){
  v=v||{};const cards={};
  Object.entries(v.cards||{}).forEach(([k,g])=>{if(g&&Array.from(g).length==25)cards[k]=Array.from(g).map(Number)});
- return{cards,called:Array.from(v.called||[]).map(Number),game:Object.assign({name:"Game 1",preset:"none",custom:"0".repeat(25)},v.game||{})};
+ const o={cards,groups:Array.from(v.groups||[]),called:Array.from(v.called||[]).map(Number),game:Object.assign({name:"Game 1",preset:"none",custom:"0".repeat(25)},v.game||{})};
+ fixGroups(o);return o;
 }
 let S;try{S=norm(JSON.parse(localStorage.getItem(KEY)))}catch(e){S=norm()}
 let ref=null,sortMode="no",flt=false,editing=null;
-function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}if(ref)ref.set(S);render()}
+function save(){fixGroups(S);try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}if(ref)ref.set(S);render()}
 
 if(FB.apiKey&&FB.databaseURL&&window.firebase){
  try{
@@ -226,18 +257,34 @@ function renderLeft(){
  const u=Array(25).fill(0);masks().forEach(m=>m.forEach((v,i)=>{if(v)u[i]=1}));
  $("pg").innerHTML=u.map((v,i)=>`<button data-i="${i}" class="${v?"on":""}" aria-label="cell ${i+1}"></button>`).join("");
 }
+let COL=new Set();try{COL=new Set(JSON.parse(localStorage.getItem("bingoCol")||"[]"))}catch(e){}
+const saveCol=()=>{try{localStorage.setItem("bingoCol",JSON.stringify([...COL]))}catch(e){}};
+const esc=t=>String(t).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 function renderCards(){
  const cs=new Set(S.called),ms=masks();
- let list=Object.keys(S.cards).map(Number).map(n=>({n,g:S.cards[n],...evalCard(S.cards[n],cs,ms)}));
- const k={0:0,1:0,2:0};list.forEach(x=>{if(x.rem!==null&&x.rem<=2)k[x.rem]++});
- $("stats").innerHTML=`<span>Cards ${list.length}/${Math.max(TOTAL,list.length)}</span>`+(ms.length?`<span class="g">BINGO ${k[0]}</span><span class="r">1 na lang ${k[1]}</span><span class="o">2 na lang ${k[2]}</span>`:'<span>Walang pattern na napili</span>');
- if(flt)list=list.filter(x=>x.rem!==null&&x.rem<=2);
- list.sort((a,b)=>{if(sortMode=="close"){const d=(a.rem??99)-(b.rem??99);if(d)return d}return a.n-b.n});
- $("cards").innerHTML=list.length?list.map(x=>{
-  const near=x.rem!==null&&x.rem<=2;
-  const lbl=x.rem===null?"":x.rem==0?"BINGO":near?x.rem+" na lang":x.rem+" kulang";
-  return`<div class="mc s${near?x.rem:"x"}" data-n="${x.n}" title="I-click para i-edit"><div class="mh"><b>#${x.n}</b><span>${lbl}</span></div><div class="mg">${x.g.map((v,i)=>`<i class="${i==12||cs.has(v)?"m ":""}${x.mask[i]?"p":""}">${i==12?"★":v}</i>`).join("")}</div></div>`;
- }).join(""):`<div class="empty">${Object.keys(S.cards).length?"Walang card na tugma sa filter.":"Wala pang cards. Pindutin ang + Add card (o Tools para sa sample cards)."}</div>`;
+ const info={};Object.keys(S.cards).forEach(n=>{info[n]={n:+n,g:S.cards[n],...evalCard(S.cards[n],cs,ms)}});
+ const all=Object.values(info),near=x=>x.rem!==null&&x.rem<=2;
+ const k={0:0,1:0,2:0};all.forEach(x=>{if(near(x))k[x.rem]++});
+ $("stats").innerHTML=`<span>Cards ${all.length}/${Math.max(TOTAL,all.length)}</span><span>Groups ${S.groups.filter(g=>g.id!="u").length}</span>`+(ms.length?`<span class="g">BINGO ${k[0]}</span><span class="r">1 na lang ${k[1]}</span><span class="o">2 na lang ${k[2]}</span>`:'<span>Walang pattern na napili</span>');
+ const tile=x=>{
+  const n2=near(x);
+  const lbl=x.rem===null?"":x.rem==0?"BINGO":n2?x.rem+" na lang":x.rem+" kulang";
+  return`<div class="mc s${n2?x.rem:"x"}" data-n="${x.n}" title="I-click para i-edit"><div class="mh"><b><span class="hd" title="Hawakan at i-drag">⋮⋮</span>#${x.n}</b><span>${lbl}</span></div><div class="mg">${x.g.map((v,i)=>`<i class="${i==12||cs.has(v)?"m ":""}${x.mask[i]?"p":""}">${i==12?"★":v}</i>`).join("")}</div></div>`;
+ };
+ if(!all.length&&S.groups.length<=1){$("cards").innerHTML=`<div class="empty">Wala pang cards. Pindutin ang + Add card, mag-import ng JSON, o Tools para sa sample cards.</div>`;return}
+ const gs=S.groups.filter(g=>g.id!="u").concat(S.groups.filter(g=>g.id=="u"));
+ let html="",shown=0;
+ gs.forEach(g=>{
+  let list=g.cards.map(n=>info[n]).filter(Boolean);
+  const total=list.length,isU=g.id=="u",col=COL.has(g.id);
+  const gk=[0,0,0];list.forEach(x=>{if(near(x))gk[x.rem]++});
+  if(flt){list=list.filter(near);if(total&&!list.length)return}
+  if(sortMode=="close")list.sort((a,b)=>(a.rem??99)-(b.rem??99));
+  shown+=list.length;
+  const badges=(gk[0]?`<span class="gb g">BINGO ${gk[0]}</span>`:"")+(gk[1]?`<span class="gb r">1 na lang ${gk[1]}</span>`:"")+(gk[2]?`<span class="gb o">2 na lang ${gk[2]}</span>`:"");
+  html+=`<section class="fold${isU?" u":""}${total?"":" nil"}${col?" col":""}" data-gid="${g.id}"><div class="fh"><button class="tg" aria-label="I-collapse o i-expand">${col?"▸":"▾"}</button><span class="gn" title="${isU?"":"Double-click para i-rename"}">${esc(g.name)}</span><span class="gc">${total} cards</span>${badges}<span class="fa">${isU?"":'<button class="ren">Rename</button><button class="ung">Ungroup</button>'}</span></div><div class="fb">${list.map(tile).join("")}</div></section>`;
+ });
+ $("cards").innerHTML=html||`<div class="empty">Walang card na tugma sa filter.</div>`;
 }
 function render(){renderLeft();renderCards()}
 
@@ -259,21 +306,111 @@ $("newg").onclick=()=>{
  if(!confirm("Bagong game? Buburahin ang mga tinawag na number (hindi ang cards)."))return;
  S.called=[];const m=/^Game (\d+)$/.exec(S.game.name);if(m)S.game.name="Game "+(+m[1]+1);save();$("num").focus();
 };
-$("sort").onclick=()=>{sortMode=sortMode=="no"?"close":"no";$("sort").textContent="Sort: "+(sortMode=="no"?"Card #":"Pinakamalapit");renderCards()};
+$("sort").onclick=()=>{sortMode=sortMode=="no"?"close":"no";$("sort").textContent="Sort: "+(sortMode=="no"?"Ayos ko":"Pinakamalapit");renderCards()};
 $("flt").onclick=()=>{flt=!flt;$("flt").textContent="Show: "+(flt?"1–2 na lang":"lahat");renderCards()};
 $("size").oninput=e=>document.documentElement.style.setProperty("--cs",e.target.value+"px");
-$("cards").onclick=e=>{const c=e.target.closest(".mc");if(c)openModal(+c.dataset.n)};
+/* ---------- groups (folders) ---------- */
+let skipClick=false;
+const getG=id=>S.groups.find(g=>g.id==id);
+function renameG(id){const g=getG(id);if(!g||id=="u")return;const nm=prompt("Pangalan ng group",g.name);if(nm&&nm.trim()){g.name=nm.trim();save()}}
+function ungroup(id){
+ const g=getG(id);if(!g||id=="u")return;
+ if(g.cards.length&&!confirm(`I-ungroup ang "${g.name}"? Ililipat ang ${g.cards.length} cards sa Ungrouped at buburahin ang group.`))return;
+ getG("u").cards.push(...g.cards);S.groups=S.groups.filter(x=>x!==g);COL.delete(id);saveCol();save();
+}
+$("cards").onclick=e=>{
+ if(skipClick)return;
+ const t=e.target;if(t.closest(".hd"))return;
+ const c=t.closest(".mc");if(c)return openModal(+c.dataset.n);
+ const f=t.closest(".fold");if(!f)return;const id=f.dataset.gid;
+ if(t.closest(".ren"))return renameG(id);
+ if(t.closest(".ung"))return ungroup(id);
+ if(t.closest(".fh")&&!t.closest(".gn")){COL.has(id)?COL.delete(id):COL.add(id);saveCol();renderCards()}
+};
+$("cards").ondblclick=e=>{const n=e.target.closest(".gn");if(n)renameG(n.closest(".fold").dataset.gid)};
+$("newgrp").onclick=()=>{
+ const n=S.groups.filter(g=>g.id!="u").length+1;
+ const nm=prompt("Pangalan ng bagong group","Group "+n);if(!nm||!nm.trim())return;
+ S.groups.unshift({id:newId(),name:nm.trim(),cards:[]});save();
+};
+$("colall").onclick=()=>{
+ const ids=S.groups.map(g=>g.id),allc=ids.every(i=>COL.has(i));
+ allc?COL.clear():ids.forEach(i=>COL.add(i));saveCol();
+ $("colall").textContent=allc?"Collapse all":"Expand all";renderCards();
+};
+
+/* ---------- drag & drop (mouse: kahit saan sa card; touch: sa ⋮⋮ handle) ---------- */
+let drag=null;
+function findTarget(x,y){
+ const el=document.elementFromPoint(x,y);if(!el)return null;
+ const f=el.closest(".fold");if(!f)return null;
+ const c=el.closest(".mc");
+ if(c&&c===drag.el)return{noop:true,fold:f};
+ if(c){const r=c.getBoundingClientRect();return{gid:f.dataset.gid,ref:+c.dataset.n,after:x>r.left+r.width/2,el:c,fold:f}}
+ return{gid:f.dataset.gid,ref:null,fold:f};
+}
+function clearMarks(){document.querySelectorAll(".db,.da,.over").forEach(e=>e.classList.remove("db","da","over"))}
+function dragStep(){
+ if(!drag||!drag.on)return;
+ const g=$("ghost");g.style.left=(drag.px-drag.ox)+"px";g.style.top=(drag.py-drag.oy)+"px";
+ const box=$("cards").getBoundingClientRect(),m=60;
+ if(drag.py<box.top+m)$("cards").scrollTop-=14;else if(drag.py>box.bottom-m)$("cards").scrollTop+=14;
+ clearMarks();drag.t=findTarget(drag.px,drag.py);
+ const t=drag.t;if(!t||t.noop)return;
+ if(t.el)t.el.classList.add(t.after?"da":"db");else t.fold.classList.add("over");
+}
+function endDrag(commit){
+ if(!drag)return;const d=drag;drag=null;
+ clearInterval(d.timer);clearMarks();
+ if(d.on){
+  const g=$("ghost");if(g)g.remove();d.el.classList.remove("src");document.body.classList.remove("dragging");
+  skipClick=true;setTimeout(()=>skipClick=false,120);
+  const t=d.t;
+  if(commit&&t&&!t.noop){
+   S.groups.forEach(x=>{x.cards=x.cards.filter(n=>n!=d.n)});
+   const tg=getG(t.gid);if(tg){
+    let i=tg.cards.length;
+    if(t.ref!=null){i=tg.cards.indexOf(t.ref);i=i<0?tg.cards.length:(t.after?i+1:i)}
+    tg.cards.splice(i,0,d.n);save();
+    if(!(t.gid=="u"&&false))toast(`Card #${d.n} → ${tg.name}`);
+   }
+  }else renderCards();
+ }
+}
+$("cards").addEventListener("pointerdown",e=>{
+ if(e.pointerType=="mouse"&&e.button!==0)return;
+ const c=e.target.closest(".mc");if(!c)return;
+ if(e.pointerType!="mouse"&&!e.target.closest(".hd"))return;
+ const r=c.getBoundingClientRect();
+ drag={n:+c.dataset.n,el:c,id:e.pointerId,x:e.clientX,y:e.clientY,px:e.clientX,py:e.clientY,ox:e.clientX-r.left,oy:e.clientY-r.top,w:r.width,on:false,t:null};
+});
+window.addEventListener("pointermove",e=>{
+ if(!drag||e.pointerId!=drag.id)return;
+ drag.px=e.clientX;drag.py=e.clientY;
+ if(!drag.on){
+  if(Math.hypot(drag.px-drag.x,drag.py-drag.y)<6)return;
+  if(sortMode=="close"){toast("Ibalik sa Sort: Ayos ko para makapag-drag","bad");skipClick=true;setTimeout(()=>skipClick=false,120);drag=null;return}
+  drag.on=true;
+  const gh=drag.el.cloneNode(true);gh.id="ghost";gh.classList.remove("s0");gh.style.width=drag.w+"px";document.body.append(gh);
+  drag.el.classList.add("src");document.body.classList.add("dragging");
+  drag.timer=setInterval(dragStep,40);
+ }
+ e.preventDefault();dragStep();
+},{passive:false});
+window.addEventListener("pointerup",e=>{if(drag&&e.pointerId==drag.id)endDrag(true)});
+window.addEventListener("pointercancel",e=>{if(drag&&e.pointerId==drag.id)endDrag(false)});
+document.addEventListener("keydown",e=>{if(e.key=="Escape"&&drag&&drag.on){e.stopPropagation();endDrag(false)}},true);
 $("addc").onclick=()=>openModal();
 $("sample").onclick=()=>{
  if(Object.keys(S.cards).length&&!confirm("Papalitan ang lahat ng cards ng sample?"))return;
- S.cards={};
+ S.cards={};S.groups=[];
  for(let n=1,cnt=Math.max(1,Math.min(200,+$("scount").value||50));n<=cnt;n++){const g=Array(25).fill(0);
   COLS.forEach(([a,b],c)=>{const pool=Array.from({length:b-a+1},(_,i)=>a+i);for(let r=0;r<5;r++){if(r*5+c==12)continue;g[r*5+c]=pool.splice(Math.floor(Math.random()*pool.length),1)[0]}});
   S.cards[n]=g}
  save();
 };
 $("rnd").onclick=()=>{const left=Array.from({length:75},(_,i)=>i+1).filter(n=>!S.called.includes(n));if(left.length)addNum(left[Math.floor(Math.random()*left.length)])};
-$("delall").onclick=()=>{if(confirm("Burahin ang LAHAT ng cards?")){S.cards={};save()}};
+$("delall").onclick=()=>{if(confirm("Burahin ang LAHAT ng cards?")){S.cards={};S.groups=[];save()}};
 
 /* ---------- Add / edit card modal ---------- */
 const IN=[],ok=(n,c)=>n>=COLS[c][0]&&n<=COLS[c][1];
@@ -319,7 +456,7 @@ function closeModal(){$("modal").hidden=true;$("num").focus()}
 function saveCard(close){
  if(!check())return;const no=+$("cno").value;
  if(S.cards[no]&&editing!==no&&!confirm(`May Card #${no} na. Papalitan?`))return;
- if(editing!==null&&editing!==no)delete S.cards[editing];
+ if(editing!==null&&editing!==no){delete S.cards[editing];S.groups.forEach(g=>{g.cards=g.cards.map(n=>n==editing?no:n)})}
  const g=Array(25).fill(0);IN.forEach((x,i)=>{if(x)g[i]=+x.value});
  S.cards[no]=g;editing=null;save();toast(`Card #${no} na-save`);
  close?closeModal():openModal();
@@ -347,7 +484,7 @@ $("impf").onchange=async e=>{
   const cnt={};
   if(g.some((v,i)=>i!=12&&(!Number.isInteger(v)||!ok(v,i%5)||(cnt[v]=(cnt[v]||0)+1)>1)))return skip.push(label+": may mali o kulang na number");
   const key=g.join(",");if(seen.has(key))return skip.push(label+": duplicate ng ibang card");
-  seen.add(key);const no=+c.no;good.push({no:Number.isInteger(no)&&no>0?no:null,g,key});
+  seen.add(key);const no=+c.no,pos=c.pos!=null&&c.pos!==""?+c.pos:NaN;good.push({no:Number.isInteger(no)&&no>0?no:null,g,key,gid:c.group!=null&&c.group!==""?String(c.group):null,pos:Number.isFinite(pos)?pos:null});
  });
  if(!good.length)return alert("Walang valid na card sa file.\n"+skip.slice(0,15).join("\n"));
  if(!confirm(`${good.length} valid na cards, ${skip.length} skipped. I-import?`))return;
@@ -356,10 +493,23 @@ $("impf").onchange=async e=>{
  const ex=new Map(replace?[]:Object.entries(S.cards).map(([n,g])=>[g.join(","),+n]));
  good.forEach(x=>{
   if(ex.has(x.key)&&ex.get(x.key)!==x.no)return skip.push(`Card #${x.no??"?"}: kapareho ng existing Card #${ex.get(x.key)}`);
-  if(x.no&&!used.has(x.no)){cards[x.no]=x.g;used.add(x.no)}else rest.push(x);
+  if(x.no&&!used.has(x.no)){cards[x.no]=x.g;used.add(x.no);x.fin=x.no}else rest.push(x);
  });
- rest.forEach(x=>{let n=1;while(cards[n])n++;cards[n]=x.g});
- S.cards=cards;save();
+ rest.forEach(x=>{let n=1;while(cards[n])n++;cards[n]=x.g;x.fin=n});
+ S.cards=cards;
+ /* groups: bawat photo (group) = 1 folder, sinusunod ang pos */
+ const placed=new Set(good.filter(x=>x.fin).map(x=>x.fin));
+ if(replace)S.groups=[];else S.groups.forEach(g=>{g.cards=g.cards.filter(n=>!placed.has(n))});
+ const gm=new Map();
+ good.forEach((x,i)=>{if(!x.fin||x.gid==null)return;if(!gm.has(x.gid))gm.set(x.gid,[]);gm.get(x.gid).push({n:x.fin,p:x.pos??i})});
+ const gnames=new Map(((j&&j.groups)||[]).map(o=>[String(o.id),o.name]));
+ const taken=new Set(S.groups.map(g=>g.name));
+ [...gm.entries()].sort((a,b)=>(+a[0]||0)-(+b[0]||0)).forEach(([id,arr])=>{
+  arr.sort((a,b)=>a.p-b.p);
+  const base=gnames.get(id)||"Photo "+id;let nm=base,q=2;while(taken.has(nm))nm=`${base} (${q++})`;taken.add(nm);
+  S.groups.push({id:newId(),name:nm,cards:arr.map(o=>o.n)});
+ });
+ save();
  const total=good.length-skip.filter(t=>t.includes("existing")).length;
  toast(`Na-import ang ${total} cards`);
  if(skip.length)alert("Hindi na-import:\n"+skip.slice(0,15).join("\n")+(skip.length>15?"\n…":""));
